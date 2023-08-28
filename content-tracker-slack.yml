@@ -1,4 +1,4 @@
-name: "Content Tracker"
+name: "Content Tracker to Post to Slack"
 on: 
   pull_request_target:
     types:
