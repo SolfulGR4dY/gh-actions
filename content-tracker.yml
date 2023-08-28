@@ -1,0 +1,159 @@
+name: "Content Tracker"
+on: 
+  pull_request_target:
+    types:
+      - closed
+jobs:
+  slack_post_to_channel:
+    name: "Slack post to #content channel"
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true && (contains(github.event.pull_request.labels.*.name, 'docs') || contains(github.event.pull_request.labels.*.name, 'blog') || contains(github.event.pull_request.labels.*.name, 'changelog'))
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # OR "2" -> To retrieve the preceding commit.
+          
+      # Example 2
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v37
+        with:
+          since_last_remote_commit: true
+        
+        # To compare changes between the current commit and the last pushed remote commit set `since_last_remote_commit: true`. e.g
+        # with:
+        #   since_last_remote_commit: true 
+
+      - name: List all changed files
+        env:
+          LABELS: ${{ toJson(github.event.pull_request.labels.*.name) }}
+          TITLE: ${{ github.event.pull_request.title }}
+          # PAYLOAD_PR_COMMENTS: ${{ github.event.pull_request.body }}
+        run: |            
+          # Payload title
+          PAYLOAD_TITLE="🎉 *New Content has Dropped!!* 🎊"
+          echo "PAYLOAD_TITLE = ${PAYLOAD_TITLE}"
+          echo "PAYLOAD_TITLE=${PAYLOAD_TITLE}" >> "$GITHUB_ENV"
+
+          # PR link
+          PAYLOAD_PR_LINK=${{github.event.pull_request.html_url}}
+          echo "PAYLOAD_PR_LINK = ${PAYLOAD_PR_LINK}"
+          echo "PAYLOAD_PR_LINK=${PAYLOAD_PR_LINK}" >> "$GITHUB_ENV"
+
+          # PR title
+          PAYLOAD_PR_TITLE=${TITLE}
+          echo "PAYLOAD_PR_TITLE = ${PAYLOAD_PR_TITLE}"
+          echo "PAYLOAD_PR_TITLE=${PAYLOAD_PR_TITLE}" >> "$GITHUB_ENV"
+
+          # PR labels
+          for LABEL in ${LABELS}; do
+            if [[ ${LABEL} == *"docs"* ]]; then
+              PAYLOAD_PR_LABELS="${PAYLOAD_PR_LABELS} Docs |"
+            fi
+            if [[ ${LABEL} == *"changelog"* ]]; then
+              PAYLOAD_PR_LABELS="${PAYLOAD_PR_LABELS} Changelog |"
+            fi
+            if [[ ${LABEL} == *"blog"* ]]; then
+              PAYLOAD_PR_LABELS="${PAYLOAD_PR_LABELS} Blog |"
+            fi
+          done
+          echo "PAYLOAD_PR_LABELS = ${PAYLOAD_PR_LABELS}"
+          echo "PAYLOAD_PR_LABELS=|${PAYLOAD_PR_LABELS}" >> "$GITHUB_ENV"
+
+          # PR Comments (requires body to be parsed for newline literals /n and escaping special characters)
+          # Drop in slack body: `\n\n*Comments (this might break with multiline and need to escape special characters):* ${{env.PAYLOAD_PR_COMMENTS}}`
+          # echo "PAYLOAD_PR_COMMENTS = ${PAYLOAD_PR_COMMENTS}"
+          # echo "PAYLOAD_PR_COMMENTS=${PAYLOAD_PR_COMMENTS}" >> "$GITHUB_ENV"
+
+          # PR requestor
+          PAYLOAD_PR_REQUESTOR=${{github.event.pull_request.user.login}}
+          echo "PAYLOAD_PR_REQUESTOR = ${PAYLOAD_PR_REQUESTOR}"
+          echo "PAYLOAD_PR_REQUESTOR=${PAYLOAD_PR_REQUESTOR}" >> "$GITHUB_ENV"
+
+          # PR files changed - loop through all changed files
+          PAYLOAD_PR_FILES_CHANGED=""
+          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            # Output changed file
+            # echo "$file was changed"
+            # Update payload
+            FILE_LINK="${PAYLOAD_PR_LINK}/files"
+            # echo "${FILE_LINK}"
+            STR="• <${FILE_LINK}|${file}>\n\n"
+            # echo "${STR}"
+            PAYLOAD_PR_FILES_CHANGED="${PAYLOAD_PR_FILES_CHANGED}${STR}"
+            # echo "${PAYLOAD_PR_FILES_CHANGED}"
+          done
+          echo "PAYLOAD_PR_FILES_CHANGED = ${PAYLOAD_PR_FILES_CHANGED}"
+          echo "PAYLOAD_PR_FILES_CHANGED=${PAYLOAD_PR_FILES_CHANGED}" >> "$GITHUB_ENV"
+          
+      - name: Post to a Slack channel
+        id: slack
+        uses: slackapi/slack-github-action@v1.24.0
+        with:
+          # Slack channel id, channel name, or user id to post message.
+          # See also: https://api.slack.com/methods/chat.postMessage#channels
+          channel-id: 'C05MHFJ4BEF'
+          # For posting a rich message using Block Kit
+          # "${PAYLOAD}"
+          
+          payload: |
+            {
+              "text": "GitHub Action build result: ${{ job.status }}\n${{ github.event.pull_request.html_url || github.event.head_commit.url }}",
+            	"blocks": [
+            		{
+            			"type": "section",
+            			"text": {
+            				"type": "mrkdwn",
+            				"text": "${{env.PAYLOAD_TITLE}}"
+            			}
+            		},
+            		{
+            			"type": "divider"
+            		},
+            		{
+            			"type": "section",
+            			"text": {
+            				"type": "mrkdwn",
+            				"text": "*<${{env.PAYLOAD_PR_LINK}}|Pull Request 🔗>*\n\n*Title:* ${{env.PAYLOAD_PR_TITLE}}\n\n*Labels:* ${{env.PAYLOAD_PR_LABELS}}"
+            			},
+            			"accessory": {
+            				"type": "image",
+            				"image_url": "https://img.icons8.com/?size=512&id=113638&format=png",
+            				"alt_text": "edit file thumbnail"
+            			}
+            		},
+            		{
+            			"type": "context",
+            			"elements": [
+            				{
+            					"type": "image",
+            					"image_url": "https://img.icons8.com/?size=512&id=84020&format=png",
+            					"alt_text": "user icon"
+            				},
+            				{
+            					"type": "mrkdwn",
+            					"text": "*Requestor:* ${{env.PAYLOAD_PR_REQUESTOR}}"
+            				}
+            			]
+            		},
+            		{
+            			"type": "divider"
+            		},
+            		{
+            			"type": "section",
+            			"text": {
+            				"type": "mrkdwn",
+            				"text": "*Files Changed:*"
+            			}
+            		},
+            		{
+            			"type": "section",
+            			"text": {
+            				"type": "mrkdwn",
+            				"text": "${{env.PAYLOAD_PR_FILES_CHANGED}}"
+            			}
+            		}
+            	]
+            }
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.CONTENT_TRACKER_BOT_TOKEN }}
